@@ -291,7 +291,8 @@ function build(){
   if (mode==='random') items = items.filter(it=>it.q.a && it.q.a!=='X').slice(0,20);
   if (mode==='exam') items = items.filter(it=>it.q.a && it.q.a!=='X').slice(0,100);
   list = items; pos = 0; answered = null; session = {right:0, done:0, log:new Map()}; weakText = null; weakBusy = false;
-  startExam();
+  if (mode==='exam'){ stopTimer(); exam = null; examPending = list.length > 0; paintTimer(); }
+  else { examPending = false; startExam(); }
   render();
 }
 function renderPapers(){
@@ -324,6 +325,7 @@ function render(){
     renderResults(card);
     return;
   }
+  if (mode==='exam' && examPending){ paintTimer(); renderExamIntro(card); return; }
   if (mode==='exam' && exam && exam.paused){ paintTimer(); renderPaused(card); return; }
   const it = list[pos], q = it.q, id = qid(it.p,q);
   document.getElementById('stats').textContent = `Question ${pos+1} of ${list.length}` + (session.done ? ` · this round ${session.right}/${session.done}` : '');
@@ -386,6 +388,7 @@ document.getElementById('resetYes').onclick = ()=>{ stats={}; exams=[]; resetAt=
 document.addEventListener('keydown', e=>{
   if (e.target.tagName==='INPUT' || e.target.tagName==='BUTTON') return;
   if (exam && exam.paused) return;
+  if (mode==='exam' && examPending){ if (e.key==='Enter') beginExam(); return; }
   const k = e.key.toUpperCase();
   if (k==='S' && list[pos] && pos<list.length){ const it=list[pos]; toggleStar(qid(it.p,it.q)); render(); }
   else if (['A','B','C','D'].includes(k) && !answered && list[pos]) pick(k);
@@ -527,7 +530,8 @@ function paintWeak(){
 }
 // ---- Mock exam timer: 60 minutes per 100 questions (36 seconds a question), with pause ----
 const SECS_PER_Q = 36;
-let exam = null; // {start, deadline, timer, timedOut, end}
+let exam = null; // {start, deadline, timer, timedOut, end, paused}
+let examPending = false; // mock exam built, waiting for the Start button
 function fmt(s){ s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s%60; return m+':'+String(r).padStart(2,'0'); }
 function stopTimer(){ if (exam && exam.timer){ clearInterval(exam.timer); exam.timer = null; } }
 function startExam(){
@@ -556,6 +560,17 @@ function resumeExam(){
   exam.start += away; exam.deadline += away; exam.paused = null;
   exam.timer = setInterval(tick, 1000); render();
 }
+function renderExamIntro(card){
+  const pname = paper==='ALL' ? 'All papers' : (BANK.find(b=>b.k===paper)||{}).name;
+  const mins = Math.round(list.length*SECS_PER_Q/60);
+  document.getElementById('stats').textContent = `${list.length} questions ready`;
+  card.innerHTML = `<div class="paused"><div class="label">Mock exam</div>
+    <p class="big">${list.length} questions · ${mins} min</p>
+    <p>${esc(pname)}. The clock starts when you press Start. You can pause it; questions are hidden while paused. Unanswered questions count as wrong, and 50% is the pass mark.</p>
+    <button class="btn primary" id="startNow">▶ Start exam</button></div>`;
+  document.getElementById('startNow').onclick = beginExam;
+}
+function beginExam(){ if (!examPending) return; examPending = false; startExam(); render(); }
 function renderPaused(card){
   document.getElementById('stats').textContent = `Question ${pos+1} of ${list.length} · paused`;
   card.innerHTML = `<div class="paused"><div class="label">Exam paused</div><p class="big">${fmt((exam.deadline-exam.paused)/1000)}</p><p>left on the clock. Questions are hidden while the exam is paused.</p><button class="btn primary" id="resumeBig">▶ Resume exam</button></div>`;
@@ -673,6 +688,8 @@ function friendly(err){
   if (m.includes('email not confirmed')) return 'Confirm your email first. Check your inbox for the link we sent.';
   if (m.includes('already registered')) return 'That email already has an account. Sign in instead.';
   if (m.includes('password')) return err.message;
+  if (m.includes('email rate limit')) return 'The sign-up email couldn’t be sent: the free email limit (a few emails an hour) has been reached. If you already signed up, check your inbox for the confirmation link; otherwise try again in an hour.';
+  if (m.includes('security purposes')) return 'Please wait a minute before asking for another email.';
   if (m.includes('rate limit') || m.includes('too many')) return 'Too many tries. Wait a minute and try again.';
   if (m.includes('fetch') || m.includes('network')) return 'Can’t reach the server. Check your connection.';
   return err && err.message ? err.message : 'Something went wrong. Try again.';
