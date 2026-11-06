@@ -105,6 +105,10 @@ footer{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap
 .barleft{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .timer{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
 .timer.warn{color:var(--bad);font-weight:600}
+.timer.paused{color:var(--warn);font-weight:600}
+.paused{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:28px 10px}
+.paused .big{font-family:var(--f-mono);font-size:2rem;font-variant-numeric:tabular-nums;margin:0}
+.paused p{margin:0;color:var(--muted)}
 .who{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--muted);margin-top:4px}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @media (max-width:440px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -165,7 +169,7 @@ footer{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap
   </div>
 
   <div class="bar">
-    <span class="barleft"><span class="stats" id="stats"></span><span class="timer" id="timer" hidden></span></span>
+    <span class="barleft"><span class="stats" id="stats"></span><span class="timer" id="timer" hidden></span><button class="btn small" id="pauseBtn" hidden>⏸ Pause</button></span>
     <span class="baractions"><label class="toggle"><input type="checkbox" id="onlyKeyed" checked> Only questions with an answer</label><button class="btn small" id="restart" title="Reshuffle and start this paper again">↻ Restart</button></span>
   </div>
   <div class="track" aria-hidden="true"><i id="trackfill"></i></div>
@@ -320,6 +324,7 @@ function render(){
     renderResults(card);
     return;
   }
+  if (mode==='exam' && exam && exam.paused){ paintTimer(); renderPaused(card); return; }
   const it = list[pos], q = it.q, id = qid(it.p,q);
   document.getElementById('stats').textContent = `Question ${pos+1} of ${list.length}` + (session.done ? ` · this round ${session.right}/${session.done}` : '');
   const tag = !q.a ? '<span class="pill pend">Answer pending</span>' : (q.a==='X' ? '<span class="pill warn">No option fits</span>' : (q.u ? '<span class="pill warn">Check</span>' : ''));
@@ -380,6 +385,7 @@ document.getElementById('resetNo').onclick = ()=>{ document.getElementById('rese
 document.getElementById('resetYes').onclick = ()=>{ stats={}; exams=[]; resetAt=Date.now(); derive(); save(); document.getElementById('resetConfirm').hidden=true; build(); };
 document.addEventListener('keydown', e=>{
   if (e.target.tagName==='INPUT' || e.target.tagName==='BUTTON') return;
+  if (exam && exam.paused) return;
   const k = e.key.toUpperCase();
   if (k==='S' && list[pos] && pos<list.length){ const it=list[pos]; toggleStar(qid(it.p,it.q)); render(); }
   else if (['A','B','C','D'].includes(k) && !answered && list[pos]) pick(k);
@@ -519,8 +525,8 @@ function paintWeak(){
     body.appendChild(p);
   });
 }
-// ---- Mock exam timer: 30 minutes per 100 questions (18 seconds a question) ----
-const SECS_PER_Q = 18;
+// ---- Mock exam timer: 60 minutes per 100 questions (36 seconds a question), with pause ----
+const SECS_PER_Q = 36;
 let exam = null; // {start, deadline, timer, timedOut, end}
 function fmt(s){ s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s%60; return m+':'+String(r).padStart(2,'0'); }
 function stopTimer(){ if (exam && exam.timer){ clearInterval(exam.timer); exam.timer = null; } }
@@ -528,13 +534,13 @@ function startExam(){
   stopTimer(); exam = null;
   if (mode==='exam' && list.length){
     const now = Date.now();
-    exam = {start: now, deadline: now + list.length*SECS_PER_Q*1000, timer: null, timedOut: false, end: null};
+    exam = {start: now, deadline: now + list.length*SECS_PER_Q*1000, timer: null, timedOut: false, end: null, paused: null};
     exam.timer = setInterval(tick, 1000);
   }
   paintTimer();
 }
 function tick(){
-  if (!exam || exam.end) return;
+  if (!exam || exam.end || exam.paused) return;
   if (Date.now() >= exam.deadline){ exam.timedOut = true; finishExam(); }
   else paintTimer();
 }
@@ -543,11 +549,26 @@ function finishExam(){
   exam.end = Math.min(Date.now(), exam.deadline); stopTimer();
   pos = list.length; answered = null; render();
 }
+function pauseExam(){ if (!exam || exam.end || exam.paused) return; exam.paused = Date.now(); stopTimer(); render(); }
+function resumeExam(){
+  if (!exam || !exam.paused) return;
+  const away = Date.now() - exam.paused;   // shift the clock so paused time doesn't count
+  exam.start += away; exam.deadline += away; exam.paused = null;
+  exam.timer = setInterval(tick, 1000); render();
+}
+function renderPaused(card){
+  document.getElementById('stats').textContent = `Question ${pos+1} of ${list.length} · paused`;
+  card.innerHTML = `<div class="paused"><div class="label">Exam paused</div><p class="big">${fmt((exam.deadline-exam.paused)/1000)}</p><p>left on the clock. Questions are hidden while the exam is paused.</p><button class="btn primary" id="resumeBig">▶ Resume exam</button></div>`;
+  document.getElementById('resumeBig').onclick = resumeExam;
+}
 function paintTimer(){
-  const el = document.getElementById('timer'); if (!el) return;
+  const el = document.getElementById('timer'), pb = document.getElementById('pauseBtn'); if (!el) return;
+  const live = exam && mode==='exam' && !exam.end && pos < list.length;
+  if (pb){ pb.hidden = !live; pb.textContent = exam && exam.paused ? '▶ Resume' : '⏸ Pause'; pb.onclick = ()=>{ exam && exam.paused ? resumeExam() : pauseExam(); }; }
   if (!exam || mode!=='exam'){ el.hidden = true; return; }
   el.hidden = false;
   if (exam.end){ el.className = 'timer'; el.textContent = '⏱ ' + fmt((exam.end-exam.start)/1000) + ' used'; return; }
+  if (exam.paused){ el.className = 'timer paused'; el.textContent = '⏸ ' + fmt((exam.deadline-exam.paused)/1000) + ' left · paused'; return; }
   const left = (exam.deadline - Date.now())/1000;
   el.className = 'timer' + (left <= 300 ? ' warn' : '');
   el.textContent = '⏱ ' + fmt(left) + ' left';
