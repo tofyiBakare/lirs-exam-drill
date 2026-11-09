@@ -102,6 +102,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .empty{color:var(--muted);text-align:center;padding:30px 10px}
 footer{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:6px}
 .link{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-decoration:underline}
+.timepick{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin:4px 0 12px;font-weight:600}
+.tp{font:inherit;font-weight:500;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.tp.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .barleft{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .timer{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
 .timer.warn{color:var(--bad);font-weight:600}
@@ -532,6 +535,9 @@ function paintWeak(){
 }
 // ---- Mock exam timer: 60 minutes per 100 questions (36 seconds a question), with pause ----
 const SECS_PER_Q = 36;
+const TIME_OPTS = [60, 75]; // minutes the candidate can choose before starting
+let examMins = 60;
+try { const m = +localStorage.getItem('lirs-exam-mins'); if (TIME_OPTS.includes(m)) examMins = m; } catch(e){}
 let exam = null; // {start, deadline, timer, timedOut, end, paused}
 let examPending = false; // mock exam built, waiting for the Start button
 function fmt(s){ s = Math.max(0, Math.round(s)); const m = Math.floor(s/60), r = s%60; return m+':'+String(r).padStart(2,'0'); }
@@ -540,7 +546,7 @@ function startExam(){
   stopTimer(); exam = null;
   if (mode==='exam' && list.length){
     const now = Date.now();
-    exam = {start: now, deadline: now + list.length*SECS_PER_Q*1000, timer: null, timedOut: false, end: null, paused: null};
+    exam = {start: now, deadline: now + examMins*60*1000, timer: null, timedOut: false, end: null, paused: null};
     exam.timer = setInterval(tick, 1000);
   }
   paintTimer();
@@ -564,12 +570,14 @@ function resumeExam(){
 }
 function renderExamIntro(card){
   const pname = paper==='ALL' ? 'All papers' : (BANK.find(b=>b.k===paper)||{}).name;
-  const mins = Math.round(list.length*SECS_PER_Q/60);
+  const lab = m => m===60 ? '1 hr' : '1 hr 15 mins';
   document.getElementById('stats').textContent = `${list.length} questions ready`;
   card.innerHTML = `<div class="paused"><div class="label">Mock exam</div>
-    <p class="big">${list.length} questions · ${mins} min</p>
+    <p class="big">${list.length} questions · ${lab(examMins)}</p>
+    <div class="timepick" role="radiogroup" aria-label="Exam time"><span>Time:</span>${TIME_OPTS.map(m=>`<button class="tp${m===examMins?' on':''}" role="radio" aria-checked="${m===examMins}" data-m="${m}">${lab(m)}</button>`).join('')}</div>
     <p>${esc(pname)}. The clock starts when you press Start. You can pause it; questions are hidden while paused. Unanswered questions count as wrong, and 50% is the pass mark.</p>
     <button class="btn primary" id="startNow">▶ Start exam</button></div>`;
+  card.querySelectorAll('.tp').forEach(b=>b.onclick=()=>{ examMins = +b.dataset.m; try{ localStorage.setItem('lirs-exam-mins', String(examMins)); }catch(e){} renderExamIntro(card); });
   document.getElementById('startNow').onclick = beginExam;
 }
 function beginExam(){ if (!examPending) return; examPending = false; startExam(); render(); }
