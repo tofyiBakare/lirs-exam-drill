@@ -95,6 +95,19 @@ h1{font-family:var(--f-display);font-weight:700;font-size:1.75rem;line-height:1.
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
 .btn:disabled{opacity:.45;cursor:default}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.qgrid{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.qgrid summary{cursor:pointer;font-weight:600;font-size:.9rem;display:flex;gap:10px;align-items:center;flex-wrap:wrap;list-style:none}
+.qgrid summary::-webkit-details-marker{display:none}
+.qgrid summary::before{content:'▸';display:inline-block;transition:transform .15s}
+.qgrid[open] summary::before{transform:rotate(90deg)}
+.qgrid .legend{font-weight:400;font-size:.78rem;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.qgrid .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px;border:1px solid var(--line)}
+.qcells{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:6px;margin-top:10px}
+.qc{position:relative;font:inherit;font-size:.85rem;font-variant-numeric:tabular-nums;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;padding:0}
+.qc:hover{border-color:var(--accent)}
+.qc.done{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.qc.cur{outline:2px solid var(--ink);outline-offset:1px;font-weight:700}
+.qc.st::after{content:'★';position:absolute;top:-2px;right:2px;font-size:.6rem;color:var(--warn)}
 .jump{display:flex;gap:6px;align-items:center;font-size:.85rem;color:var(--muted)}
 .jump input{width:72px;font:inherit;padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .track{height:6px;background:var(--line);border-radius:99px;overflow:hidden}
@@ -359,7 +372,15 @@ function render(){
   if (mode==='drill') h += `<span class="jump"><label for="jumpTo">Go to Q</label><input id="jumpTo" type="number" min="1" inputmode="numeric"></span>`;
   if (mode==='exam' && exam && !exam.end) h += `<button class="btn" id="finish">Submit exam</button>`;
   h += `<button class="btn primary" id="next">${answered ? 'Next' : 'Skip'}</button></div>`;
+  if (mode==='exam' && exam && !exam.end){
+    const doneN = list.filter(x=>session.picks && session.picks.has(qid(x.p,x.q))).length;
+    h += `<details class="qgrid" id="qgrid" ${gridOpen?'open':''}><summary>Question cards <span class="legend"><span>${doneN} of ${list.length} answered</span><span><i style="background:var(--accent);border-color:var(--accent)"></i>Answered</span><span><i></i>Not yet</span><span>★ Starred</span></span></summary><div class="qcells">`;
+    list.forEach((x,k)=>{ const xid=qid(x.p,x.q); const cls=[(session.picks&&session.picks.has(xid))?'done':'', k===pos?'cur':'', isStarred(xid)?'st':''].join(' ').trim(); h += `<button class="qc ${cls}" data-k="${k}" aria-label="Question ${k+1}${cls.includes('done')?', answered':''}" ${k===pos?'aria-current="true"':''}>${k+1}</button>`; });
+    h += `</div></details>`;
+  }
   card.innerHTML = h;
+  const qg = document.getElementById('qgrid');
+  if (qg){ qg.ontoggle = ()=>{ gridOpen = qg.open; }; qg.querySelectorAll('.qc').forEach(b=>b.onclick=()=>{ pos=+b.dataset.k; answered=null; render(); }); }
   if (document.getElementById('coachBody')) paintCoach(id);
   card.querySelectorAll('.opt').forEach(b=>b.onclick=()=>pick(b.dataset.l));
   document.getElementById('star').onclick=()=>{ toggleStar(id); render(); };
@@ -537,6 +558,7 @@ function paintWeak(){
 const SECS_PER_Q = 36;
 const TIME_OPTS = [60, 75]; // minutes the candidate can choose before starting
 let examMins = 60;
+let gridOpen = true;
 try { const m = +localStorage.getItem('lirs-exam-mins'); if (TIME_OPTS.includes(m)) examMins = m; } catch(e){}
 let exam = null; // {start, deadline, timer, timedOut, end, paused}
 let examPending = false; // mock exam built, waiting for the Start button
